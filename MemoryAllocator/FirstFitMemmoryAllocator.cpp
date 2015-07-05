@@ -3,8 +3,8 @@
 #include <iostream>
 #include <bitset>
 
-const size_t SIZE_HEADER = 16;
-const size_t START_OF_HEAP = 16;
+const size_t SIZE_HEADER = 24;
+const size_t START_OF_HEAP = 24;
 
 /*
  * @breaf: helper struct which contents info about current chunk
@@ -14,10 +14,11 @@ const size_t START_OF_HEAP = 16;
 
 struct Header {
     
-    Header(uint64_t prev, uint32_t size, bool isFree)
+    Header(uint64_t prev, uint64_t next, uint32_t size, bool isFree)
     {
         this->prev = prev;
         this->chunkSize = size;
+        this->next = next;
         if(isFree)
         {
             chunkSize |= (1 << 31);
@@ -26,6 +27,7 @@ struct Header {
     }
 
     uint64_t prev;
+    uint64_t next;
     uint32_t chunkSize;
 };
 
@@ -51,7 +53,7 @@ FirstFitMemmoryAllocator::FirstFitMemmoryAllocator(size_t sizeOfram) :
 
  void FirstFitMemmoryAllocator::appendFirstHeader(size_t sizeOfram)
  {
-    Header startHeader(0, sizeOfram - SIZE_HEADER, true);
+    Header startHeader(0, 0, sizeOfram - SIZE_HEADER, true);
     memcpy(ram, &startHeader, sizeof(Header));
  }
 
@@ -81,10 +83,11 @@ void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
             return NULL;
         }
 
-        Header newHeader((uint64_t)ram, newSize, false);
+        Header newHeader((uint64_t)ram, 0, newSize, false);
         memcpy(getRamByIndex(START_OF_HEAP), &newHeader, sizeof(Header));
         return static_cast<void*>(&address);
     }
+
 
 
 
@@ -119,7 +122,7 @@ void FirstFitMemmoryAllocator::firstMultipleAddress(uint64_t & start)
     uint32_t address = (uint32_t)(ram + start);
     while(true)
     {
-        bool isMultiple = address % 8 == 0 ? true : false; // CANNOT DO STATIC CAST ???   
+        bool isMultiple = address % 8 == 0 ? true : false;  
         if(isMultiple)
         {
             break;
@@ -134,6 +137,6 @@ bool FirstFitMemmoryAllocator::isNotCommited()
 {
     std::bitset<8> tmp((uint8_t) ram[11]);
     std::cout << tmp << std::endl;
-    return ram[11] & (1 << 7);
+    return ram[19] & (1 << 7);
 }
 
