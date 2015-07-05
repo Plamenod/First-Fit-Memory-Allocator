@@ -7,5 +7,6 @@ int main()
     FirstFitMemmoryAllocator f;
     f.allocateBlocks(10);
 
+
     return 0;
 }

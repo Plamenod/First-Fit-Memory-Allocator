@@ -1,29 +1,32 @@
 #include "FirstFitMemmoryAllocator.h"
 #include <Windows.h>
 #include <iostream>
+#include <bitset>
 
-const size_t SIZE_HEADER = 13;
-const size_t START = 13;
+const size_t SIZE_HEADER = 16;
+const size_t START_OF_HEAP = 16;
 
 /*
  * @breaf: helper struct which contents info about current chunk
- * @Note: Also every ram page will start with info about the new ram page, and after that every chunk will      * start with the same info header.
+ * @Note: Also every ram page will start with info about the new ram page, and after that every chunk will
+ * start with the same info header.
  */
 
 struct Header {
     
-    Header(uint32_t prev, uint32_t next, uint32_t size, uint8_t isFree)
+    Header(uint64_t prev, uint32_t size, bool isFree)
     {
         this->prev = prev;
-        this->next = next;
         this->chunkSize = size;
-        this->isFree = isFree;
+        if(isFree)
+        {
+            chunkSize |= (1 << 31);
+        }
+        // TODO check max size of chunk, because used last bite to see whether is free or not
     }
 
-    uint32_t prev;
-    uint32_t next;
+    uint64_t prev;
     uint32_t chunkSize;
-    uint8_t isFree;
 };
 
 
@@ -36,12 +39,8 @@ FirstFitMemmoryAllocator::FirstFitMemmoryAllocator(size_t sizeOfram) :
                 MEM_COMMIT | MEM_RESERVE,
                 PAGE_EXECUTE_READWRITE)))
 {
-    if(GetProcessHeap() == NULL)
-    {
-        std::cerr << "ERROR Handle\n";
-        exit(1);
-    }
-    else if(sizeOfram <= SIZE_HEADER)
+ 
+    if(sizeOfram <= SIZE_HEADER)
     {
         std::cout << "ERROR too small size of ram\n";
         exit(1);
@@ -52,7 +51,7 @@ FirstFitMemmoryAllocator::FirstFitMemmoryAllocator(size_t sizeOfram) :
 
  void FirstFitMemmoryAllocator::appendFirstHeader(size_t sizeOfram)
  {
-    Header startHeader(0, 0, sizeOfram, true);
+    Header startHeader(0, sizeOfram - SIZE_HEADER, true);
     memcpy(ram, &startHeader, sizeof(Header));
  }
 
@@ -68,25 +67,58 @@ void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
         return NULL;
     }
 
-    if(isNotCommite())
+    if(isNotCommited())
     {
-        size_t index = START;
-        firstMultipleAddress(index);
-        uint32_t newSize = bytesToAllocate + index;
-        memcpy(&ram[9], &newSize, sizeof(uint32_t));
-        ram[8] = false;
-        return (void*)index;//static_cast<void*>(index);
+        uint64_t address = START_OF_HEAP + SIZE_HEADER;
+        firstMultipleAddress(address);
+
+        uint32_t newSize = bytesToAllocate + (address - (START_OF_HEAP + SIZE_HEADER));
+        setIsUsed(newSize);
+
+         if(getCorrectSize(newSize) > (uint32_t)&ram[8])
+        {
+            // TODO new heap
+            return NULL;
+        }
+
+        Header newHeader((uint64_t)ram, newSize, false);
+        memcpy(getRamByIndex(START_OF_HEAP), &newHeader, sizeof(Header));
+        return static_cast<void*>(&address);
     }
 
 
 
 }
-
-void FirstFitMemmoryAllocator::firstMultipleAddress(size_t& start)
+uint32_t FirstFitMemmoryAllocator::getCorrectSize(uint32_t newSize)
 {
+    return newSize & ~(1 << 31);
+}
+
+
+uint8_t* FirstFitMemmoryAllocator::getRamByIndex(uint64_t index)
+{
+    return &ram[index];
+}
+
+void FirstFitMemmoryAllocator::setIsUsed(uint32_t & newSize)
+{
+    newSize &= ~(1 << 31);
+}
+
+
+void FirstFitMemmoryAllocator::firstFitBlock(
+    uint64_t & currentBlock,
+    uint64_t & firstFitAddress)
+{
+    
+}
+
+
+void FirstFitMemmoryAllocator::firstMultipleAddress(uint64_t & start)
+{
+    uint32_t address = (uint32_t)(ram + start);
     while(true)
     {
-        uint32_t address = (uint32_t)(ram + start);
         bool isMultiple = address % 8 == 0 ? true : false; // CANNOT DO STATIC CAST ???   
         if(isMultiple)
         {
@@ -94,11 +126,14 @@ void FirstFitMemmoryAllocator::firstMultipleAddress(size_t& start)
         }
         ++start;
     }
+    start = address;
 }
 
 
-bool FirstFitMemmoryAllocator::isNotCommite()
+bool FirstFitMemmoryAllocator::isNotCommited()
 {
-    return ram[8];
+    std::bitset<8> tmp((uint8_t) ram[11]);
+    std::cout << tmp << std::endl;
+    return ram[11] & (1 << 7);
 }
 

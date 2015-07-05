@@ -22,7 +22,11 @@ private:
     void freeBlocks();
 
     void appendFirstHeader(size_t sizeOfram);
-    bool isNotCommite();
-    void firstMultipleAddress(size_t& start);
+    bool isNotCommited();
+    void firstMultipleAddress(uint64_t & start);
+    void firstFitBlock(uint64_t & currentBlock, uint64_t & firstFitAddress);
+    void setIsUsed(uint32_t & newSize);
+    uint8_t* getRamByIndex(uint64_t index);
+    uint32_t getCorrectSize(uint32_t newSize); 
 };
 
