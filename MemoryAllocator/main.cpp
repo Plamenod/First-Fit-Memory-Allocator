@@ -7,19 +7,18 @@ int main()
     f.ramStateInfo();
     std::cout << "construct FFMA\n\n";
 
-    void * p = f.allocateBlocks(10);
+    void * p = f.myMalloc(10);
     uint64_t d = (uint64_t)p;
     f.ramStateInfo();
     std::cout << "allocate 10 size \n\n";
-    void * k = f.allocateBlocks(10);
+    void * k = f.myMalloc(10);
     f.ramStateInfo();
      std::cout << "allocate 10 size \n\n";
-    f.release(p);
+    f.myFree(p);
     f.ramStateInfo();
-     std::cout << "release first block \n\n";
-     f.release(k);
+     std::cout << "myFree first block \n\n";
+     f.myFree(k);
     f.ramStateInfo();
-     std::cout << "release first block \n\n";
-
+     std::cout << "myFree first block \n\n";
     return 0;
 }

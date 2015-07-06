@@ -1,48 +1,6 @@
 #include "FirstFitMemmoryAllocator.h"
 #include <Windows.h>
 #include <iostream>
-#include <bitset>
-
-const size_t SIZE_HEADER = 24;
-const size_t START_OF_HEAP = 24;
-
-/*
- * @breaf: helper struct which contents info about current chunk
- * @Note: Also every ram page will start with info about the new ram page, and after that every chunk will
- * start with the same info header.
- */
-
-struct Header {
-    
-    Header(uint64_t prev, uint64_t next, uint32_t size, bool isFree)
-    {
-        this->prev = prev;
-        this->chunkSize = size;
-        this->next = next;
-        if(isFree)
-        {
-            chunkSize |= (1 << 31);
-        }
-        // TODO check max size of chunk, because used last bite to see whether is free or not
-    }
-
-    bool isFree()
-    {
-        return chunkSize & (1 << 31);
-    }
-
-    void release()
-    {
-        chunkSize |= (1 << 31);
-    }
-
-
-    uint64_t prev;
-    uint64_t next;
-    uint32_t chunkSize;
-};
-
-
 
 FirstFitMemmoryAllocator::FirstFitMemmoryAllocator(size_t sizeOfram) :
     ram(static_cast<uint8_t*>(
@@ -53,11 +11,17 @@ FirstFitMemmoryAllocator::FirstFitMemmoryAllocator(size_t sizeOfram) :
                 PAGE_EXECUTE_READWRITE)))
 {
  
-    if(sizeOfram <= SIZE_HEADER)
+    if(sizeOfram <= 2 * SIZE_HEADER)
     {
         std::cout << "ERROR too small size of ram\n";
         exit(1);
     }
+
+    if(!ram)
+    {
+        throw std::exception("ERROR Can't allocate memory !!!\n");
+    }
+
 
     appendFirstHeader(sizeOfram);
 }
@@ -70,10 +34,11 @@ FirstFitMemmoryAllocator::FirstFitMemmoryAllocator(size_t sizeOfram) :
 
 FirstFitMemmoryAllocator::~FirstFitMemmoryAllocator(void)
 {
-    // TODO
+    size_t size = getCorrectSize(reinterpret_cast<Header*>(ram)->chunkSize);
+    VirtualFree(ram, size, MEM_RELEASE);
 }
 
-void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
+void* FirstFitMemmoryAllocator::myMalloc(uint32_t bytesToAllocate)
 {
     if(bytesToAllocate == 0)
     {
@@ -85,26 +50,33 @@ void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
         uint64_t address = START_OF_HEAP + SIZE_HEADER;
         uint8_t skip = firstMultipleAddressByIndex(address);
 
-        uint8_t* result = ram;  // TODO rename result !!!!
-        result += 2 * SIZE_HEADER + skip;
-        uint64_t u = (uint64_t)result;
+        uint8_t* newAddress = ram;
+        newAddress += 2 * SIZE_HEADER + skip;
         uint32_t newSize = bytesToAllocate + skip + SIZE_HEADER;
         setIsUsed(newSize);
 
-        if(getCorrectSize(newSize) > getCorrectSize(*(uint32_t*)getRamByIndex(16))) 
+        if(getCorrectSize(newSize) > getCorrectSize(*reinterpret_cast<uint64_t*>(getRamByIndex(16)))) 
         {
             // TODO new heap
             return NULL;
         }
 
-        Header newHeader((uint64_t)ram, (uint64_t)ram + SIZE_HEADER + newSize, newSize, false);
+        Header newHeader(
+            reinterpret_cast<uint64_t>(ram),
+            reinterpret_cast<uint64_t>(ram) + SIZE_HEADER + newSize,
+            newSize,
+            false);
         memcpy(getRamByIndex(START_OF_HEAP), &newHeader, sizeof(Header));
 
         ram[19] &= ~(1 << 7);
-        Header* startHeader = (Header*)ram;
-        Header newFreeHeader((uint64_t)ram + SIZE_HEADER, 0,  getCorrectSize(startHeader->chunkSize) - newSize - SIZE_HEADER, true);
-        memcpy((uint64_t*)newHeader.next, &newFreeHeader, sizeof(Header));
-        return result;
+        Header* startHeader = reinterpret_cast<Header*>(ram);
+        Header newFreeHeader(
+            reinterpret_cast<uint64_t>(ram) + SIZE_HEADER,
+            0,
+            getCorrectSize(startHeader->chunkSize) - newSize - SIZE_HEADER,
+            true);
+        memcpy(reinterpret_cast<uint64_t*>(newHeader.next), &newFreeHeader, sizeof(Header));
+        return newAddress;
     }
 
     Header* current = nextFreeBlock(bytesToAllocate);
@@ -113,48 +85,52 @@ void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
 
 void* FirstFitMemmoryAllocator::split(Header* current,uint32_t bytesToAllocate)
 {
-    uint32_t currentAddress = (uint32_t)current;
+    uint64_t currentAddress = reinterpret_cast<uint64_t>(current) + SIZE_HEADER;
 
-    uint64_t newAddress = currentAddress + SIZE_HEADER;
-    size_t skipedAddresses = firstMultipleAddressByAddress(newAddress);
-    uint32_t newSize = SIZE_HEADER + skipedAddresses + bytesToAllocate;
-
-    uint8_t* result = reinterpret_cast<uint8_t*>(current); // TODO rename result !!!!
-    result += SIZE_HEADER + skipedAddresses;
-
-    Header occurHeader(current->prev, (uint64_t)current + newSize, newSize, false);
+    size_t padding = firstMultipleAddressByAddress(currentAddress);
+    uint32_t newSize = SIZE_HEADER + padding + bytesToAllocate;
+    uint8_t* newAddress = reinterpret_cast<uint8_t*>(current) + SIZE_HEADER + padding;
+    Header occurHeader(
+        current->prev,
+        reinterpret_cast<uint64_t>(current) + newSize,
+        newSize,
+        false);
     uint32_t freeSize;
     if(current->next == 0)
     {
-        Header* currentHeap = getCurrentHeap((uint64_t)current);
+        Header* currentHeap = getCurrentHeap(reinterpret_cast<uint64_t>(current));
         uint64_t lastAddress = getLastAddress(currentHeap);
-        freeSize = lastAddress - ((uint64_t)current + newSize + 1);
+        freeSize = lastAddress - (reinterpret_cast<uint64_t>(current) + newSize + 1);
     }
     else
     {
-        freeSize = current->next - (uint64_t)current + newSize + 1;
+        freeSize = current->next - reinterpret_cast<uint64_t>(current) + newSize + 1;
     }
     
-    Header newFreeHeader((uint64_t)current, current->next, freeSize, true);
-    memcpy((uint8_t*)current + newSize, &newFreeHeader, freeSize);
-    memcpy(current, &occurHeader, newSize);
-    return result;
+    Header newFreeHeader(
+        reinterpret_cast<uint64_t>(current),
+        current->next,
+        freeSize,
+        true);
+    memcpy(reinterpret_cast<uint64_t*>(current) + newSize, &newFreeHeader, sizeof(Header));
+    memcpy(current, &occurHeader, sizeof(Header));
+    return newAddress;
 }
 
 uint64_t FirstFitMemmoryAllocator::getLastAddress(Header* heap)
 {
-    return (uint64_t)heap + heap->chunkSize - 1;
+    return reinterpret_cast<uint64_t>(heap) + heap->chunkSize - 1;
 }
-
-
 
 Header* FirstFitMemmoryAllocator::nextFreeBlock(uint32_t bytesToAllocate)
 {
-    Header* currentHeader = (Header*)getRamByIndex(START_OF_HEAP);
+    Header* currentHeader = reinterpret_cast<Header*>(getRamByIndex(START_OF_HEAP));
 
-    while(getCorrectSize(currentHeader->chunkSize) >= (bytesToAllocate + SIZE_HEADER) && !currentHeader->isFree())
+    while(getCorrectSize(currentHeader->chunkSize) >=
+        (bytesToAllocate + SIZE_HEADER) &&
+        !currentHeader->isFree())
     {
-        currentHeader = (Header*)currentHeader->next;
+        currentHeader = reinterpret_cast<Header*>(currentHeader->next);
         if(currentHeader == NULL)
         {
             // TODO allocate new heap
@@ -162,7 +138,8 @@ Header* FirstFitMemmoryAllocator::nextFreeBlock(uint32_t bytesToAllocate)
 
     }
 
-    if(getCorrectSize(currentHeader->chunkSize) < (bytesToAllocate + SIZE_HEADER) && currentHeader->next == 0)
+    if(getCorrectSize(currentHeader->chunkSize) <
+        (bytesToAllocate + SIZE_HEADER) && currentHeader->next == 0)
     {
         // TODO make new heap
         return NULL;
@@ -198,14 +175,14 @@ void FirstFitMemmoryAllocator::firstFitBlock(
 
 size_t FirstFitMemmoryAllocator::firstMultipleAddressByIndex(uint64_t & start)
 {
-    Header* currentHeap = getCurrentHeap((uint64_t)getRamByIndex(start));
+    Header* currentHeap = getCurrentHeap(reinterpret_cast<uint64_t>(getRamByIndex(start)));
     if(currentHeap == NULL)
     {
         std::cerr << "WRONG ADDRESS\n";
         exit(1);
     }
 
-    uint32_t address = (uint32_t)(currentHeap) + start;
+    uint32_t address = reinterpret_cast<uint32_t>(currentHeap) + start;
     size_t numberOfSkipedAddresses = 0;
     while(true)
     {
@@ -223,7 +200,7 @@ size_t FirstFitMemmoryAllocator::firstMultipleAddressByIndex(uint64_t & start)
 
 size_t FirstFitMemmoryAllocator::firstMultipleAddressByAddress(uint64_t & address)
 {
-// TODO check whether it's in range
+// TODO check whether it's in range, when added multiple heap functionality
     size_t numberOfSkipedAddresses = 0;
     while(true)
     {
@@ -235,6 +212,7 @@ size_t FirstFitMemmoryAllocator::firstMultipleAddressByAddress(uint64_t & addres
         ++address;
         ++numberOfSkipedAddresses;
     }
+
     return numberOfSkipedAddresses;
 }
 
@@ -244,7 +222,7 @@ Header* FirstFitMemmoryAllocator::getCurrentHeap(uint64_t indexOfAddress)
     Header* iterHeap = (Header*)ram;
     do
     {
-        uint64_t firstAddress = (uint64_t)iterHeap;
+        uint64_t firstAddress = reinterpret_cast<uint64_t>(iterHeap);
         uint64_t lastAddress = firstAddress + getCorrectSize(iterHeap->chunkSize);
         if(firstAddress <= indexOfAddress && indexOfAddress <= lastAddress)
         {
@@ -254,7 +232,7 @@ Header* FirstFitMemmoryAllocator::getCurrentHeap(uint64_t indexOfAddress)
         {
             if(iterHeap->next)
             {
-                iterHeap = (Header*)iterHeap->next;
+                iterHeap = reinterpret_cast<Header*>(iterHeap->next);
             }
             else
             {
@@ -264,25 +242,20 @@ Header* FirstFitMemmoryAllocator::getCurrentHeap(uint64_t indexOfAddress)
         }
     }
     while(iterHeap);
-
     return iterHeap;
 }
 
-
-
 bool FirstFitMemmoryAllocator::isNotCommited()
 {
-    std::bitset<8> tmp((uint8_t) ram[11]);
-    std::cout << tmp << std::endl;
     return ram[19] & (1 << 7);
 }
 
-void FirstFitMemmoryAllocator::release(void* addressToFree)
+void FirstFitMemmoryAllocator::myFree(void* addressToFree)
 {
     Header* address = getHeaderByAddress(addressToFree);
     if(!address)
     {
-        std::cerr << "Can't release " << addressToFree << std::endl;
+        std::cerr << "Can't myFree " << addressToFree << std::endl;
         return;
     }
     merge(address);
@@ -290,8 +263,8 @@ void FirstFitMemmoryAllocator::release(void* addressToFree)
 
  Header* FirstFitMemmoryAllocator::getHeaderByAddress(void* addressToFree)
  {
-    Header* currentHeap = getCurrentHeap((uint64_t)addressToFree);
-    uint64_t address = (uint64_t)addressToFree;
+    Header* currentHeap = getCurrentHeap(reinterpret_cast<uint64_t>(addressToFree));
+    uint64_t address = reinterpret_cast<uint64_t>(addressToFree);
     if(!currentHeap)
     {
         std::cerr<<"Can't find current heap\n";
@@ -302,7 +275,8 @@ void FirstFitMemmoryAllocator::release(void* addressToFree)
     while(currentHeap)
     {
         uint64_t currentAddress = reinterpret_cast<uint64_t>(currentHeap);
-        uint64_t lastAddressOfChunk = currentAddress + getCorrectSize(currentHeap->chunkSize) - 1;
+        uint64_t lastAddressOfChunk =
+            currentAddress + getCorrectSize(currentHeap->chunkSize) - 1;
         if(currentAddress <= address && address <= lastAddressOfChunk)
         {
             return currentHeap;

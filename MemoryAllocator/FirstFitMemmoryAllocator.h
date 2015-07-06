@@ -1,8 +1,5 @@
 #pragma once
-#include <stdint.h>
-#include <memory>
-
-const size_t SIZE_OF_RAM = 1000;//1073741824;
+#include "common.h"
 
 struct Header;
 
@@ -10,10 +7,10 @@ class FirstFitMemmoryAllocator
 {
 public:
     FirstFitMemmoryAllocator(size_t sizeOfram = SIZE_OF_RAM);
-    ~FirstFitMemmoryAllocator(void); // TODO
+    ~FirstFitMemmoryAllocator(void);
 
-    void* allocateBlocks(uint32_t bytesToAllocate);
-    void release(void* addressToFree);
+    void* myMalloc(uint32_t bytesToAllocate);
+    void myFree(void* addressToFree);
 
     /*
      * It's only for testing
@@ -22,14 +19,10 @@ public:
      void ramStateInfo();
 
 private:
-    uint8_t* ram;
-
+   
     void splitBlock();
     void mergeBlocks();
-
-    
     void freeBlocks();
-
     void appendFirstHeader(size_t sizeOfram);
     bool isNotCommited();
     size_t firstMultipleAddressByIndex(uint64_t & index);
@@ -45,5 +38,7 @@ private:
     Header* getHeaderByAddress(void* addressToFree);
     void merge(Header* address);
     bool isPreviousHeaderFirst(Header*);
+
+    uint8_t* ram;
 };
 
