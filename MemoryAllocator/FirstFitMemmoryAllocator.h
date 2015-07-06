@@ -15,6 +15,12 @@ public:
     void* allocateBlocks(uint32_t bytesToAllocate);
     void release(void* addressToFree);
 
+    /*
+     * It's only for testing
+     */
+
+     void ramStateInfo();
+
 private:
     uint8_t* ram;
 

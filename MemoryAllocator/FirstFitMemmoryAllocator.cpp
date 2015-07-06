@@ -85,6 +85,9 @@ void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
         uint64_t address = START_OF_HEAP + SIZE_HEADER;
         uint8_t skip = firstMultipleAddressByIndex(address);
 
+        uint8_t* result = ram;  // TODO rename result !!!!
+        result += 2 * SIZE_HEADER + skip;
+        uint64_t u = (uint64_t)result;
         uint32_t newSize = bytesToAllocate + skip + SIZE_HEADER;
         setIsUsed(newSize);
 
@@ -101,7 +104,7 @@ void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
         Header* startHeader = (Header*)ram;
         Header newFreeHeader((uint64_t)ram + SIZE_HEADER, 0,  getCorrectSize(startHeader->chunkSize) - newSize - SIZE_HEADER, true);
         memcpy((uint64_t*)newHeader.next, &newFreeHeader, sizeof(Header));
-        return static_cast<void*>(&address);
+        return result;
     }
 
     Header* current = nextFreeBlock(bytesToAllocate);
@@ -115,7 +118,10 @@ void* FirstFitMemmoryAllocator::split(Header* current,uint32_t bytesToAllocate)
     uint64_t newAddress = currentAddress + SIZE_HEADER;
     size_t skipedAddresses = firstMultipleAddressByAddress(newAddress);
     uint32_t newSize = SIZE_HEADER + skipedAddresses + bytesToAllocate;
-    
+
+    uint8_t* result = reinterpret_cast<uint8_t*>(current); // TODO rename result !!!!
+    result += SIZE_HEADER + skipedAddresses;
+
     Header occurHeader(current->prev, (uint64_t)current + newSize, newSize, false);
     uint32_t freeSize;
     if(current->next == 0)
@@ -132,7 +138,7 @@ void* FirstFitMemmoryAllocator::split(Header* current,uint32_t bytesToAllocate)
     Header newFreeHeader((uint64_t)current, current->next, freeSize, true);
     memcpy((uint8_t*)current + newSize, &newFreeHeader, freeSize);
     memcpy(current, &occurHeader, newSize);
-    return (void*)newAddress;
+    return result;
 }
 
 uint64_t FirstFitMemmoryAllocator::getLastAddress(Header* heap)
@@ -285,7 +291,7 @@ void FirstFitMemmoryAllocator::release(void* addressToFree)
  Header* FirstFitMemmoryAllocator::getHeaderByAddress(void* addressToFree)
  {
     Header* currentHeap = getCurrentHeap((uint64_t)addressToFree);
-    uint64_t address = reinterpret_cast<uint64_t>(addressToFree);
+    uint64_t address = (uint64_t)addressToFree;
     if(!currentHeap)
     {
         std::cerr<<"Can't find current heap\n";
@@ -296,7 +302,7 @@ void FirstFitMemmoryAllocator::release(void* addressToFree)
     while(currentHeap)
     {
         uint64_t currentAddress = reinterpret_cast<uint64_t>(currentHeap);
-        uint64_t lastAddressOfChunk = currentAddress + currentHeap->chunkSize;
+        uint64_t lastAddressOfChunk = currentAddress + getCorrectSize(currentHeap->chunkSize) - 1;
         if(currentAddress <= address && address <= lastAddressOfChunk)
         {
             return currentHeap;
@@ -389,6 +395,40 @@ bool FirstFitMemmoryAllocator::isPreviousHeaderFirst(Header* currentHeader)
 {
     uint64_t distance = reinterpret_cast<uint64_t>(currentHeader) - currentHeader->prev;
     return (distance == 0 || distance == SIZE_HEADER) ? true : false;
+}
+
+void FirstFitMemmoryAllocator::ramStateInfo()
+{
+    size_t count_chunks = 0;
+    uint64_t firstAddress, lastAddress;
+    firstAddress = reinterpret_cast<uint64_t>(ram);
+    Header* pool = reinterpret_cast<Header*>(ram);
+    lastAddress = firstAddress + getCorrectSize(pool->chunkSize);
+    if(!pool->isFree())
+    {
+        ++pool;
+        while(pool)
+        {
+            std::cout << "Pool is free/occur: " << pool->isFree() << std::endl;
+            std::cout << "Current address is: " << (uint64_t)pool << std::endl;
+            std::cout << "Previous chunk is: " << pool->prev << std::endl;
+            std::cout << "Next chunk is: " << pool->next << std::endl;
+            std::cout << "Current chunk size is: " << getCorrectSize(pool->chunkSize) << std::endl;
+            count_chunks++;
+            pool = reinterpret_cast<Header*>(pool->next);
+        }
+
+    }
+
+    else
+    {
+        std::cout << "The ram is empty:\n";
+        std::cout << "First address is: " << firstAddress << std::endl
+                  << "Last address is: " << lastAddress << std::endl;
+        std::cout << "Size of the ram is: " << getCorrectSize(pool->chunkSize) << std::endl;
+    }
+
+    std::cout << "Number of blocks is: " << count_chunks << std::endl;
 }
 
 
