@@ -13,6 +13,7 @@ public:
     ~FirstFitMemmoryAllocator(void); // TODO
 
     void* allocateBlocks(uint32_t bytesToAllocate);
+    void release(void* addressToFree);
 
 private:
     uint8_t* ram;
@@ -35,5 +36,8 @@ private:
     void* split(Header* current,uint32_t bytesToAllocate);
     Header* getCurrentHeap(uint64_t indexOfAddress);
     uint64_t getLastAddress(Header* heap);
+    Header* getHeaderByAddress(void* addressToFree);
+    void merge(Header* address);
+    bool isPreviousHeaderFirst(Header*);
 };
 

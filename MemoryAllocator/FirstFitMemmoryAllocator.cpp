@@ -31,6 +31,11 @@ struct Header {
         return chunkSize & (1 << 31);
     }
 
+    void release()
+    {
+        chunkSize |= (1 << 31);
+    }
+
 
     uint64_t prev;
     uint64_t next;
@@ -101,8 +106,6 @@ void* FirstFitMemmoryAllocator::allocateBlocks(uint32_t bytesToAllocate)
 
     Header* current = nextFreeBlock(bytesToAllocate);
     return split(current, bytesToAllocate);
- 
-
 }
 
 void* FirstFitMemmoryAllocator::split(Header* current,uint32_t bytesToAllocate)
@@ -267,4 +270,125 @@ bool FirstFitMemmoryAllocator::isNotCommited()
     std::cout << tmp << std::endl;
     return ram[19] & (1 << 7);
 }
+
+void FirstFitMemmoryAllocator::release(void* addressToFree)
+{
+    Header* address = getHeaderByAddress(addressToFree);
+    if(!address)
+    {
+        std::cerr << "Can't release " << addressToFree << std::endl;
+        return;
+    }
+    merge(address);
+}
+
+ Header* FirstFitMemmoryAllocator::getHeaderByAddress(void* addressToFree)
+ {
+    Header* currentHeap = getCurrentHeap((uint64_t)addressToFree);
+    uint64_t address = reinterpret_cast<uint64_t>(addressToFree);
+    if(!currentHeap)
+    {
+        std::cerr<<"Can't find current heap\n";
+        return NULL;
+    }
+
+    ++currentHeap;
+    while(currentHeap)
+    {
+        uint64_t currentAddress = reinterpret_cast<uint64_t>(currentHeap);
+        uint64_t lastAddressOfChunk = currentAddress + currentHeap->chunkSize;
+        if(currentAddress <= address && address <= lastAddressOfChunk)
+        {
+            return currentHeap;
+        }
+        currentHeap = reinterpret_cast<Header*>(currentHeap->next);
+    }
+    return NULL;
+ }
+
+void FirstFitMemmoryAllocator::merge(Header* address)
+{
+    bool isFirstHeader = isPreviousHeaderFirst(address);
+    if(isFirstHeader)
+    {
+        if(address->next == 0)
+        {
+            address->release();
+        }
+        else
+        {
+            Header* nextBlock = reinterpret_cast<Header*>(address->next);
+            if(nextBlock->isFree())
+            {
+                address->next = nextBlock->next;
+                address->chunkSize += nextBlock->chunkSize;
+            }
+            else
+            {
+                address->release();
+            }
+        }
+        return;
+    }
+
+    else if(address->next == 0)
+    {
+         Header* prevBlock = reinterpret_cast<Header*>(address->prev);
+         if(prevBlock->isFree())
+         {
+             prevBlock->next = address->next;
+             prevBlock->chunkSize += address->chunkSize;
+         }
+         else
+         {
+            address->release();
+         }
+         return;
+    }
+    /*
+     * 100% we have left and right NEIGHBOURS
+     */
+    Header* prevBlock = reinterpret_cast<Header*>(address->prev);
+    Header* nextBlock = reinterpret_cast<Header*>(address->next);
+
+    if(prevBlock->isFree())
+    {
+        if(nextBlock->isFree())
+        {
+            prevBlock->next = nextBlock->next;
+            if(nextBlock->next != 0)
+            {
+                 Header* nextNextBlock = reinterpret_cast<Header*>(nextBlock->next);
+                 nextNextBlock->prev = reinterpret_cast<uint64_t>(prevBlock);
+            }
+            prevBlock->chunkSize += address->chunkSize + nextBlock->chunkSize;
+        }
+        else
+        {
+            prevBlock->next = address->next;
+            prevBlock->chunkSize += address->chunkSize;
+        }
+        return;
+    }
+    else
+    {
+        if(nextBlock->isFree())
+        {
+            address->next = nextBlock->next;
+            address->chunkSize += nextBlock->chunkSize;
+        }
+        else
+        {
+            address->release();
+        }
+        return;
+    }
+}
+
+bool FirstFitMemmoryAllocator::isPreviousHeaderFirst(Header* currentHeader)
+{
+    uint64_t distance = reinterpret_cast<uint64_t>(currentHeader) - currentHeader->prev;
+    return (distance == 0 || distance == SIZE_HEADER) ? true : false;
+}
+
 
